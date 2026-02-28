@@ -4,7 +4,7 @@ An end-to-end data science workflow for predicting heart disease using clinical 
 
 ## 🔗 Live Demo
 
-[**Streamlit App**](YOUR_STREAMLIT_URL_HERE)
+[**Streamlit App**](https://msis522-hw1-heart-failure-gjfteetwerufsrd8tkvd63.streamlit.app/)
 
 ## 📊 Overview
 
@@ -28,8 +28,8 @@ This project implements the complete data science pipeline on the [Heart Failure
 
 ### 1. Clone and Install
 ```bash
-git clone https://github.com/YOUR_USERNAME/YOUR_REPO_NAME.git
-cd YOUR_REPO_NAME
+git clone https://github.com/AveryJYL/msis522-hw1-heart-failure.git
+cd msis522-hw1-heart-failure
 pip install -r requirements.txt
 ```
 
