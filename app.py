@@ -39,16 +39,27 @@ def load_sklearn_models():
 
 @st.cache_resource
 def load_keras_model():
-    import tensorflow as tf
-    return tf.keras.models.load_model('model_mlp.keras')
+    try:
+        import tensorflow as tf
+        return tf.keras.models.load_model("model_mlp.h5", compile=False), None
+    except Exception as e1:
+        try:
+            import tensorflow as tf
+            return tf.keras.models.load_model("model_mlp.keras", compile=False), None
+        except Exception as e2:
+            return None, f"h5: {e1} | keras: {e2}"
 
 df = load_data()
 sklearn_models, scaler, metadata = load_sklearn_models()
-keras_model = load_keras_model()
+keras_model, keras_err = load_keras_model()
 results_df = pd.read_csv('model_comparison.csv')
 
 # All models dict (for iteration)
-all_models = {**sklearn_models, 'Neural Network (Keras)': keras_model}
+if keras_model is not None:
+    all_models = {**sklearn_models, 'Neural Network (Keras)': keras_model}
+else:
+    all_models = {**sklearn_models}
+    st.warning(f"⚠️ Keras model unavailable: {keras_err}")
 
 # Prepare test set (same split as training)
 df_model = pd.get_dummies(df, columns=['Sex', 'ChestPainType', 'RestingECG',
