@@ -1,0 +1,6 @@
+Model,Accuracy,Precision,Recall,F1,AUC-ROC
+Logistic Regression,0.8913,0.9128,0.8889,0.9007,0.9344
+Decision Tree (CART),0.8551,0.8645,0.8758,0.8701,0.8819
+Random Forest,0.8913,0.902,0.902,0.902,0.9456
+Gradient Boosting,0.8986,0.9085,0.9085,0.9085,0.9393
+Neural Network (MLP),0.8913,0.9128,0.8889,0.9007,0.9425
