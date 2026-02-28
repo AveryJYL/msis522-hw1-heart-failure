@@ -1,5 +1,6 @@
 """
 MSIS 522 - HW1: Heart Disease Prediction - Streamlit App
+Models: Logistic Regression, Decision Tree, Random Forest, XGBoost, Keras MLP
 Run: streamlit run app.py
 """
 
@@ -25,21 +26,29 @@ def load_data():
     return pd.read_csv('heart.csv')
 
 @st.cache_resource
-def load_models():
+def load_sklearn_models():
     models = {
         'Logistic Regression': joblib.load('model_logistic_regression.joblib'),
         'Decision Tree': joblib.load('model_decision_tree.joblib'),
         'Random Forest': joblib.load('model_random_forest.joblib'),
-        'Gradient Boosting': joblib.load('model_gradient_boosting.joblib'),
-        'Neural Network (MLP)': joblib.load('model_mlp.joblib'),
+        'XGBoost': joblib.load('model_xgboost.joblib'),
     }
     scaler = joblib.load('scaler.joblib')
     metadata = joblib.load('metadata.joblib')
     return models, scaler, metadata
 
+@st.cache_resource
+def load_keras_model():
+    import tensorflow as tf
+    return tf.keras.models.load_model('model_mlp.keras')
+
 df = load_data()
-models, scaler, metadata = load_models()
+sklearn_models, scaler, metadata = load_sklearn_models()
+keras_model = load_keras_model()
 results_df = pd.read_csv('model_comparison.csv')
+
+# All models dict (for iteration)
+all_models = {**sklearn_models, 'Neural Network (Keras)': keras_model}
 
 # Prepare test set (same split as training)
 df_model = pd.get_dummies(df, columns=['Sex', 'ChestPainType', 'RestingECG',
@@ -47,16 +56,45 @@ df_model = pd.get_dummies(df, columns=['Sex', 'ChestPainType', 'RestingECG',
 X = df_model.drop('HeartDisease', axis=1)
 y = df_model['HeartDisease']
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42, stratify=y)
-num_cols = ['Age', 'RestingBP', 'Cholesterol', 'FastingBS', 'MaxHR', 'Oldpeak']
+
+# Scale using ONLY transform (scaler was fit during training, not here)
+num_cols = metadata['num_cols']
 X_train_scaled = X_train.copy()
 X_test_scaled = X_test.copy()
-X_train_scaled[num_cols] = scaler.fit_transform(X_train[num_cols])
+X_train_scaled[num_cols] = scaler.transform(X_train[num_cols])
 X_test_scaled[num_cols] = scaler.transform(X_test[num_cols])
 
-# Determine best model by F1
+# Models that need scaled input
+SCALED_MODELS = {'Logistic Regression', 'Neural Network (Keras)'}
+
+# Determine best model
 best_model_name = results_df.loc[results_df['F1'].idxmax(), 'Model']
 best_f1 = results_df['F1'].max()
 best_auc = results_df.loc[results_df['F1'].idxmax(), 'AUC-ROC']
+
+# Tree-based models (for SHAP waterfall)
+TREE_MODELS = {'Decision Tree', 'Random Forest', 'XGBoost'}
+
+# ============================================================
+# HELPER: get predictions from any model
+# ============================================================
+def get_predictions(model_name, X_input):
+    """Return (predicted_class, probability_array) for any model."""
+    model = all_models[model_name]
+    if model_name in SCALED_MODELS:
+        inp = X_input.copy()
+        inp[num_cols] = scaler.transform(X_input[num_cols])
+    else:
+        inp = X_input
+
+    if model_name == 'Neural Network (Keras)':
+        prob_1 = model.predict(inp.values, verbose=0).flatten()[0]
+        pred = int(prob_1 >= 0.5)
+        prob = np.array([1 - prob_1, prob_1])
+    else:
+        pred = model.predict(inp)[0]
+        prob = model.predict_proba(inp)[0]
+    return pred, prob
 
 # ============================================================
 # TABS
@@ -90,22 +128,24 @@ with tab1:
     ### The Dataset
     The **Heart Disease Prediction Dataset** from Kaggle combines five heart disease databases
     (Cleveland, Hungarian, Switzerland, Long Beach VA, Statlog) with **918 patient records**
-    and 11 clinical features.
+    and 11 clinical features including age, blood pressure, cholesterol, and exercise test results.
 
     ### Our Approach
-    We built and compared **five ML models** — from Logistic Regression to Gradient Boosted
-    Trees and Neural Networks — each tuned using 5-fold stratified cross-validation with
-    `class_weight='balanced'` where applicable.
+    We built and compared **five ML models** — Logistic Regression, Decision Tree, Random Forest,
+    XGBoost, and a Keras Neural Network — each tuned using 5-fold stratified cross-validation.
+    Tree-based models used `class_weight='balanced'` or `scale_pos_weight` to handle the slight
+    class imbalance.
 
     ### Key Findings
     - **{best_model_name}** achieved the best performance (F1: **{best_f1:.1%}**, AUC-ROC: **{best_auc:.1%}**)
     - Most predictive features: **ST_Slope**, **ExerciseAngina**, **ChestPainType**
     - **Asymptomatic patients** have the highest heart disease rate (~79%)
-    - SHAP analysis confirms model aligns with clinical knowledge
+    - SHAP analysis confirms the model aligns with established clinical knowledge
 
     ### So What?
-    This model could help clinicians **prioritize high-risk patients** for further testing.
-    The interactive tool (Tab 4) demonstrates clinical decision support in practice.
+    This model could help clinicians **prioritize high-risk patients** for further cardiac testing.
+    The interactive tool (Tab 4) demonstrates clinical decision support in practice — input patient
+    data and get a real-time risk prediction with SHAP explanation.
     """)
 
 # ============================================================
@@ -135,7 +175,7 @@ with tab2:
         ax.set_title('Target Proportion', fontsize=14, fontweight='bold')
         st.pyplot(fig); plt.close()
 
-    st.info("Slightly imbalanced (55.3% vs 44.7%). Using `class_weight='balanced'` and F1/AUC-ROC metrics.")
+    st.info("Slightly imbalanced (55.3% vs 44.7%). Using `class_weight='balanced'` and F1/AUC-ROC as primary metrics.")
     st.divider()
 
     st.markdown("### Feature Distributions & Relationships")
@@ -158,7 +198,7 @@ with tab2:
     ax.set_xticklabels(ax.get_xticklabels(), rotation=0)
     for c in ax.containers: ax.bar_label(c, fmt='%.1f%%', label_type='center', fontsize=9)
     st.pyplot(fig); plt.close()
-    st.caption("**Insight:** ASY (Asymptomatic) → ~79% heart disease. Symptom-free patients are most at risk.")
+    st.caption("**Insight:** ASY (Asymptomatic) → ~79% heart disease. No symptoms ≠ no risk.")
 
     st.markdown("#### 3. Numerical Features")
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
@@ -189,13 +229,14 @@ with tab2:
         df_enc[col] = LabelEncoder().fit_transform(df_enc[col])
     fig, ax = plt.subplots(figsize=(12, 10))
     corr = df_enc.corr(); mask = np.triu(np.ones_like(corr, dtype=bool))
-    sns.heatmap(corr, mask=mask, annot=True, fmt='.2f', cmap='RdBu_r', center=0, vmin=-1, vmax=1, square=True, linewidths=0.5, ax=ax)
+    sns.heatmap(corr, mask=mask, annot=True, fmt='.2f', cmap='RdBu_r', center=0, vmin=-1, vmax=1,
+                square=True, linewidths=0.5, ax=ax)
     ax.set_title('Feature Correlation Heatmap', fontsize=14, fontweight='bold')
     st.pyplot(fig); plt.close()
     st.caption("**Insight:** ST_Slope (0.52), ExerciseAngina (0.49), Oldpeak (0.40), MaxHR (-0.40) strongest with HeartDisease.")
 
 # ============================================================
-# TAB 3: MODEL PERFORMANCE  [FIX #2: added best params] [FIX #6: added MLP training history]
+# TAB 3: MODEL PERFORMANCE
 # ============================================================
 with tab3:
     st.title("🤖 Model Performance")
@@ -208,20 +249,20 @@ with tab3:
 
     st.divider()
 
-    # [FIX #2] Best Hyperparameters
+    # Best Hyperparameters
     st.markdown("### Best Hyperparameters (from 5-Fold GridSearchCV)")
     hp_col1, hp_col2 = st.columns(2)
     with hp_col1:
         st.markdown("**Logistic Regression (Baseline):**")
-        st.code("max_iter=1000, class_weight='balanced'", language=None)
+        st.json(metadata['best_params']['Logistic Regression'])
         st.markdown("**Decision Tree:**")
         st.json(metadata['best_params']['Decision Tree'])
         st.markdown("**Random Forest:**")
         st.json(metadata['best_params']['Random Forest'])
     with hp_col2:
-        st.markdown("**Gradient Boosting:**")
-        st.json(metadata['best_params']['Gradient Boosting'])
-        st.markdown("**Neural Network (MLP):**")
+        st.markdown("**XGBoost:**")
+        st.json(metadata['best_params']['XGBoost'])
+        st.markdown("**Neural Network (Keras MLP):**")
         st.json(metadata['best_params']['MLP'])
 
     st.divider()
@@ -243,9 +284,13 @@ with tab3:
     # ROC Curves
     st.markdown("### ROC Curves")
     fig, ax = plt.subplots(figsize=(10, 8))
-    for name, model in models.items():
-        X_eval = X_test_scaled if name in ['Logistic Regression', 'Neural Network (MLP)'] else X_test
-        y_prob = model.predict_proba(X_eval)[:, 1]
+    for name in all_models:
+        X_eval = X_test_scaled if name in SCALED_MODELS else X_test
+        model = all_models[name]
+        if name == 'Neural Network (Keras)':
+            y_prob = model.predict(X_eval.values, verbose=0).flatten()
+        else:
+            y_prob = model.predict_proba(X_eval)[:, 1]
         fpr, tpr, _ = roc_curve(y_test, y_prob)
         ax.plot(fpr, tpr, label=f'{name} (AUC={auc(fpr, tpr):.3f})', linewidth=2)
     ax.plot([0, 1], [0, 1], 'k--', label='Random Guess')
@@ -258,53 +303,56 @@ with tab3:
     # Confusion Matrices
     st.markdown("### Confusion Matrices")
     fig, axes = plt.subplots(1, 5, figsize=(25, 4))
-    for ax, (name, model) in zip(axes, models.items()):
-        X_eval = X_test_scaled if name in ['Logistic Regression', 'Neural Network (MLP)'] else X_test
-        cm = confusion_matrix(y_test, model.predict(X_eval))
+    for ax, name in zip(axes, all_models):
+        X_eval = X_test_scaled if name in SCALED_MODELS else X_test
+        model = all_models[name]
+        if name == 'Neural Network (Keras)':
+            y_pred = (model.predict(X_eval.values, verbose=0).flatten() >= 0.5).astype(int)
+        else:
+            y_pred = model.predict(X_eval)
+        cm = confusion_matrix(y_test, y_pred)
         ConfusionMatrixDisplay(cm, display_labels=['Normal', 'HD']).plot(ax=ax, cmap='Blues')
         ax.set_title(name, fontsize=9, fontweight='bold')
     plt.tight_layout(); st.pyplot(fig); plt.close()
 
     st.divider()
 
-    # [FIX #6] MLP Training History
+    # MLP Training History
     st.markdown("### MLP Training History")
-    mlp_model = models['Neural Network (MLP)']
-    if hasattr(mlp_model, 'loss_curve_'):
-        fig, ax = plt.subplots(figsize=(10, 5))
-        ax.plot(mlp_model.loss_curve_, label='Training Loss', color='#3498db', linewidth=2)
-        if hasattr(mlp_model, 'validation_scores_'):
-            ax2 = ax.twinx()
-            ax2.plot(mlp_model.validation_scores_, label='Validation Accuracy', color='#e74c3c', linewidth=2, linestyle='--')
-            ax2.set_ylabel('Validation Accuracy', color='#e74c3c')
-            ax2.legend(loc='center right')
-        ax.set_title('MLP Training History', fontsize=14, fontweight='bold')
-        ax.set_xlabel('Epoch'); ax.set_ylabel('Training Loss', color='#3498db')
-        ax.legend(loc='center left')
-        plt.tight_layout(); st.pyplot(fig); plt.close()
-    else:
-        st.info("MLP training history not available (model loaded from file).")
+    try:
+        st.image('mlp_training_history.png', use_container_width=True)
+        st.caption("Left: Binary cross-entropy loss. Right: Accuracy. Early stopping prevents overfitting.")
+    except:
+        st.info("Training history image not available.")
+
+    # MLP Tuning Results (Bonus)
+    st.markdown("### Bonus: MLP Hyperparameter Tuning")
+    try:
+        st.image('mlp_tuning_results.png', use_container_width=True)
+        st.caption("Grid search over hidden layer sizes, dropout rates, and learning rates. Best config in red.")
+    except:
+        st.info("Tuning results image not available.")
 
     st.divider()
 
     st.markdown("### Analysis")
     st.markdown(f"""
     **{best_model_name}** achieved the best F1 ({best_f1:.4f}) and AUC-ROC ({best_auc:.4f}).
-    This makes sense because ensemble methods combine many trees' votes, reducing overfitting.
-    **Logistic Regression** performed surprisingly well as a simple baseline. **Decision Tree**
-    was weakest — a single tree memorizes training data and doesn't generalize well.
-    All tree-based models used `class_weight='balanced'` to handle the slight class imbalance.
-    The **MLP** improved after hyperparameter tuning (best config: {metadata['best_params']['MLP']}).
+    Ensemble and boosting methods outperformed single models because they combine many weak learners.
+    **Logistic Regression** performed surprisingly well as a simple baseline, suggesting the features
+    have a fairly linear relationship with heart disease risk. **Decision Tree** was weakest — a
+    single tree memorizes training data and doesn't generalize as well. **XGBoost** was competitive,
+    benefiting from sequential boosting and regularization. The **Keras MLP** improved after
+    hyperparameter tuning over hidden layer sizes, dropout rates, and learning rates.
     """)
 
 # ============================================================
 # TAB 4: EXPLAINABILITY & INTERACTIVE PREDICTION
-# [FIX #1: real-time SHAP waterfall for user input using TreeExplainer]
 # ============================================================
 with tab4:
     st.title("🔍 Explainability & Interactive Prediction")
 
-    st.markdown("### SHAP Analysis (Random Forest)")
+    st.markdown("### SHAP Analysis (Best Tree Model)")
 
     st.markdown("#### SHAP Summary Plot (Beeswarm)")
     st.image('fig_3_1_shap_summary.png', use_container_width=True)
@@ -313,20 +361,21 @@ with tab4:
     st.markdown("#### SHAP Feature Importance")
     st.image('fig_3_2_shap_bar.png', use_container_width=True)
 
-    st.markdown("#### SHAP Waterfall - High Risk Patient Example")
+    st.markdown("#### SHAP Waterfall — High Risk Patient Example")
     st.image('fig_3_3_shap_waterfall.png', use_container_width=True)
-    st.caption("Shows how each feature pushed prediction from base (0.501) to final (0.995) for one high-risk patient.")
+    st.caption("Shows how each feature pushed the prediction from the base rate to a 99.5% risk for one patient.")
 
     st.divider()
     st.markdown("### SHAP Interpretation")
     st.markdown("""
-    **Top features:** ST_Slope (Up/Flat), ExerciseAngina, MaxHR, Cholesterol, Oldpeak.
+    **Top features:** ST_Slope (Up/Flat), ExerciseAngina, MaxHR, Cholesterol, Oldpeak — all related
+    to how the heart performs during exercise, which aligns with clinical cardiology practice.
 
-    **Direction:** Flat ST_Slope, exercise angina, high Oldpeak → **increases** risk.
-    Up ST_Slope, high MaxHR → **decreases** risk.
+    **Direction:** Flat ST_Slope + exercise angina + high Oldpeak → **increases** heart disease risk.
+    Upward ST_Slope + high MaxHR → **decreases** risk (signs of a healthy heart).
 
-    **Clinical value:** Aligns with cardiology knowledge. Patients with flat ST slope +
-    exercise angina should be flagged for further testing.
+    **Clinical value:** The model's most important features match what cardiologists actually look at.
+    This tool could help flag high-risk patients — especially asymptomatic ones — for further testing.
     """)
 
     st.divider()
@@ -346,95 +395,106 @@ with tab4:
         oldpeak = st.slider("Oldpeak", -2.6, 6.2, 0.0, step=0.1)
         sex = st.selectbox("Sex", ["M", "F"])
         chest_pain = st.selectbox("Chest Pain Type", ["ASY", "ATA", "NAP", "TA"],
-            format_func=lambda x: {"ASY":"ASY-Asymptomatic","ATA":"ATA-Atypical Angina",
-                                    "NAP":"NAP-Non-Anginal","TA":"TA-Typical Angina"}[x])
+            format_func=lambda x: {"ASY": "ASY — Asymptomatic", "ATA": "ATA — Atypical Angina",
+                                    "NAP": "NAP — Non-Anginal", "TA": "TA — Typical Angina"}[x])
     with c3:
         resting_ecg = st.selectbox("Resting ECG", ["Normal", "LVH", "ST"])
-        exercise_angina = st.selectbox("Exercise Angina", ["N", "Y"], format_func=lambda x: "Yes" if x=="Y" else "No")
+        exercise_angina = st.selectbox("Exercise Angina", ["N", "Y"], format_func=lambda x: "Yes" if x == "Y" else "No")
         st_slope = st.selectbox("ST Slope", ["Up", "Flat", "Down"])
-        selected_model = st.selectbox("Model", list(models.keys()))
+        selected_model = st.selectbox("Model", list(all_models.keys()))
 
+    # Build input DataFrame
     input_data = pd.DataFrame({
         'Age': [age], 'RestingBP': [resting_bp], 'Cholesterol': [cholesterol],
         'FastingBS': [fasting_bs], 'MaxHR': [max_hr], 'Oldpeak': [oldpeak],
-        'Sex_M': [1 if sex=='M' else 0],
-        'ChestPainType_ATA': [1 if chest_pain=='ATA' else 0],
-        'ChestPainType_NAP': [1 if chest_pain=='NAP' else 0],
-        'ChestPainType_TA': [1 if chest_pain=='TA' else 0],
-        'RestingECG_Normal': [1 if resting_ecg=='Normal' else 0],
-        'RestingECG_ST': [1 if resting_ecg=='ST' else 0],
-        'ExerciseAngina_Y': [1 if exercise_angina=='Y' else 0],
-        'ST_Slope_Flat': [1 if st_slope=='Flat' else 0],
-        'ST_Slope_Up': [1 if st_slope=='Up' else 0],
+        'Sex_M': [1 if sex == 'M' else 0],
+        'ChestPainType_ATA': [1 if chest_pain == 'ATA' else 0],
+        'ChestPainType_NAP': [1 if chest_pain == 'NAP' else 0],
+        'ChestPainType_TA': [1 if chest_pain == 'TA' else 0],
+        'RestingECG_Normal': [1 if resting_ecg == 'Normal' else 0],
+        'RestingECG_ST': [1 if resting_ecg == 'ST' else 0],
+        'ExerciseAngina_Y': [1 if exercise_angina == 'Y' else 0],
+        'ST_Slope_Flat': [1 if st_slope == 'Flat' else 0],
+        'ST_Slope_Up': [1 if st_slope == 'Up' else 0],
     })
 
-    model = models[selected_model]
-    if selected_model in ['Logistic Regression', 'Neural Network (MLP)']:
-        inp = input_data.copy(); inp[num_cols] = scaler.transform(input_data[num_cols])
-        pred = model.predict(inp)[0]; prob = model.predict_proba(inp)[0]
-    else:
-        pred = model.predict(input_data)[0]; prob = model.predict_proba(input_data)[0]
+    pred, prob = get_predictions(selected_model, input_data)
 
     st.divider()
     st.markdown("### Prediction Result")
     r1, r2, r3 = st.columns(3)
     with r1:
-        if pred == 1: st.error("⚠️ **Heart Disease Detected**")
-        else: st.success("✅ **No Heart Disease**")
-    with r2: st.metric("Risk Probability", f"{prob[1]:.1%}")
-    with r3: st.metric("Model", selected_model)
+        if pred == 1:
+            st.error("⚠️ **Heart Disease Detected**")
+        else:
+            st.success("✅ **No Heart Disease**")
+    with r2:
+        st.metric("Risk Probability", f"{prob[1]:.1%}")
+    with r3:
+        st.metric("Model Used", selected_model)
 
+    # Risk bar
     fig, ax = plt.subplots(figsize=(8, 1.5))
-    ax.barh([0], [prob[1]], color='#e74c3c' if prob[1]>0.5 else '#2ecc71', height=0.5)
-    ax.barh([0], [1-prob[1]], left=[prob[1]], color='#ecf0f1', height=0.5)
-    ax.set_xlim(0,1); ax.set_yticks([]); ax.set_xlabel('Heart Disease Probability')
+    ax.barh([0], [prob[1]], color='#e74c3c' if prob[1] > 0.5 else '#2ecc71', height=0.5)
+    ax.barh([0], [1 - prob[1]], left=[prob[1]], color='#ecf0f1', height=0.5)
+    ax.set_xlim(0, 1); ax.set_yticks([]); ax.set_xlabel('Heart Disease Probability')
     ax.axvline(x=0.5, color='black', linestyle='--', linewidth=1)
     st.pyplot(fig); plt.close()
 
-    # [FIX #1] Real-time SHAP waterfall for user's custom input
+    # SHAP Waterfall — linked to model selection
     st.markdown("### SHAP Waterfall for Your Custom Input")
-    try:
-        import shap
 
-        rf_model = models['Random Forest']
-        explainer = shap.TreeExplainer(rf_model)
-        input_float = input_data.astype(float)
-        shap_vals = explainer.shap_values(input_float, check_additivity=False)
+    if selected_model in TREE_MODELS:
+        try:
+            import shap
+            tree_model = all_models[selected_model]
+            explainer = shap.TreeExplainer(tree_model)
+            input_float = input_data.astype(float)
+            shap_vals = explainer.shap_values(input_float, check_additivity=False)
 
-        # Handle different shap output formats
-        if isinstance(shap_vals, list):
-            sv = shap_vals[1][0]  # class 1, first (only) sample
-            base = explainer.expected_value[1]
-        elif shap_vals.ndim == 3:
-            sv = shap_vals[0, :, 1]
-            base = explainer.expected_value[1] if hasattr(explainer.expected_value, '__len__') else explainer.expected_value
-        else:
-            sv = shap_vals[0]
-            base = explainer.expected_value
+            if isinstance(shap_vals, list):
+                sv = shap_vals[1][0]
+                base = explainer.expected_value[1]
+            elif shap_vals.ndim == 3:
+                sv = shap_vals[0, :, 1]
+                base = explainer.expected_value[1] if hasattr(explainer.expected_value, '__len__') else explainer.expected_value
+            else:
+                sv = shap_vals[0]
+                base = explainer.expected_value if not hasattr(explainer.expected_value, '__len__') else explainer.expected_value[1]
 
-        fig, ax = plt.subplots(figsize=(12, 8))
-        shap.waterfall_plot(
-            shap.Explanation(
-                values=sv,
-                base_values=float(base),
-                data=input_float.iloc[0].values,
-                feature_names=input_data.columns.tolist()
-            ),
-            show=False
-        )
-        plt.title('SHAP Waterfall - Your Custom Input (Random Forest)', fontsize=12, fontweight='bold')
-        plt.tight_layout()
-        st.pyplot(fig); plt.close()
-        st.caption("Red bars push toward Heart Disease, blue bars push toward Normal. "
-                   "This shows exactly why the model made this prediction for your specific input.")
-    except ImportError:
-        st.warning("⚠️ SHAP library not installed. Install with `pip install shap` to see real-time waterfall plots.")
-    except Exception as e:
-        st.warning(f"Could not generate real-time waterfall: {e}")
-        st.info("See the static waterfall plot above for a high-risk patient example.")
+            fig, ax = plt.subplots(figsize=(12, 8))
+            shap.waterfall_plot(
+                shap.Explanation(
+                    values=sv,
+                    base_values=float(base),
+                    data=input_float.iloc[0].values,
+                    feature_names=input_data.columns.tolist()
+                ),
+                show=False
+            )
+            plt.title(f'SHAP Waterfall — {selected_model} — Your Custom Input', fontsize=12, fontweight='bold')
+            plt.tight_layout()
+            st.pyplot(fig); plt.close()
+            st.caption("Red bars push toward Heart Disease, blue bars push toward Normal. "
+                       "This explains exactly why the model made this prediction for your input.")
+        except ImportError:
+            st.warning("⚠️ SHAP library not installed. Install with `pip install shap` to see waterfall plots.")
+        except Exception as e:
+            st.warning(f"Could not generate waterfall: {e}")
+    else:
+        st.info(f"💡 SHAP waterfall is available for tree-based models (Decision Tree, Random Forest, XGBoost). "
+                f"Currently showing prediction from {selected_model}. "
+                f"The static SHAP plots above use the best tree model for interpretability.")
 
-# Footer
+# ============================================================
+# FOOTER
+# ============================================================
 st.divider()
-st.markdown("<div style='text-align:center;color:gray;font-size:0.8em;'>MSIS 522 HW1 | Heart Disease Prediction | "
-            "<a href='https://www.kaggle.com/datasets/fedesoriano/heart-failure-prediction'>Kaggle Dataset</a></div>",
-            unsafe_allow_html=True)
+st.markdown(
+    "<div style='text-align:center;color:gray;font-size:0.8em;'>"
+    "MSIS 522 HW1 | Heart Disease Prediction | "
+    "<a href='https://www.kaggle.com/datasets/fedesoriano/heart-failure-prediction'>Kaggle Dataset</a> | "
+    "<a href='https://github.com/AveryJYL/msis522-hw1-heart-failure'>GitHub</a>"
+    "</div>",
+    unsafe_allow_html=True
+)
