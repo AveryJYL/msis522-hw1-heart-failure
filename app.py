@@ -414,7 +414,9 @@ with tab4:
         resting_ecg = st.selectbox("Resting ECG", ["Normal", "LVH", "ST"])
         exercise_angina = st.selectbox("Exercise Angina", ["N", "Y"], format_func=lambda x: "Yes" if x == "Y" else "No")
         st_slope = st.selectbox("ST Slope", ["Up", "Flat", "Down"])
-        selected_model = st.selectbox("Model", list(all_models.keys()))
+        model_names = list(all_models.keys())
+        default_idx = model_names.index('Random Forest') if 'Random Forest' in model_names else 0
+        selected_model = st.selectbox("Model", model_names, index=default_idx)
 
     # Build input DataFrame
     input_data = pd.DataFrame({

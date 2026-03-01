@@ -23,8 +23,14 @@ import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers, callbacks
 import joblib
+import random
 import warnings
 warnings.filterwarnings('ignore')
+
+# Reproducibility
+random.seed(42)
+np.random.seed(42)
+tf.random.set_seed(42)
 
 print(f"TensorFlow: {tf.__version__}")
 print(f"XGBoost: {xgb.__version__}")
