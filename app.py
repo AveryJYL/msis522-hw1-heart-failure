@@ -258,10 +258,7 @@ with tab3:
     st.title("🤖 Model Performance")
 
     st.markdown("### Model Comparison")
-    st.dataframe(results_df.style.highlight_max(
-        subset=['Accuracy', 'Precision', 'Recall', 'F1', 'AUC-ROC'], color='#90EE90'
-    ).format({c: '{:.4f}' for c in ['Accuracy', 'Precision', 'Recall', 'F1', 'AUC-ROC']}),
-        use_column_width=True)
+    st.dataframe(results_df)
 
     st.divider()
 
