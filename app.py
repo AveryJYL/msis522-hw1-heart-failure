@@ -39,33 +39,32 @@ def load_sklearn_models():
 
 @st.cache_resource
 def load_keras_model():
+    """Try loading Keras model with graceful fallback."""
     try:
         import tensorflow as tf
-        return tf.keras.models.load_model("model_mlp.h5", compile=False), None
-    except Exception as e1:
-        try:
-            import tensorflow as tf
-            return tf.keras.models.load_model("model_mlp.keras", compile=False), None
-        except Exception as e2:
-            return None, f"h5: {e1} | keras: {e2}"
+        model = tf.keras.models.load_model('model_mlp.h5')
+        return model, None
+    except Exception:
+        pass
+    try:
+        import tensorflow as tf
+        model = tf.keras.models.load_model('model_mlp.keras')
+        return model, None
+    except Exception as e:
+        return None, str(e)
 
 df = load_data()
 sklearn_models, scaler, metadata = load_sklearn_models()
-keras_model, keras_err = load_keras_model()
+keras_model, keras_error = load_keras_model()
 results_df = pd.read_csv('model_comparison.csv')
 
-# All models dict (for iteration)
+# All models dict (exclude Keras if loading failed)
+all_models = {**sklearn_models}
 if keras_model is not None:
-    all_models = {**sklearn_models, 'Neural Network (Keras)': keras_model}
+    all_models['Neural Network (Keras)'] = keras_model
 else:
-    all_models = {**sklearn_models}
-    st.info(
-        "ℹ️ Neural Network (Keras MLP) was trained and evaluated offline "
-        "(see notebook and model_comparison.csv). "
-        "The deployment environment has a TensorFlow deserialization mismatch, "
-        "so live inference uses available deployed models. "
-        "All training metrics and MLP results are preserved in Tab 3."
-    )
+    st.info("ℹ️ The Keras MLP model was trained offline in Colab (see Notebook Section 2.6). "
+            "Its full metrics are shown in Tab 3. The deployment environment uses the 4 compatible models for live inference.")
 
 # Prepare test set (same split as training)
 df_model = pd.get_dummies(df, columns=['Sex', 'ChestPainType', 'RestingECG',
@@ -259,7 +258,10 @@ with tab3:
     st.title("🤖 Model Performance")
 
     st.markdown("### Model Comparison")
-    st.dataframe(results_df)
+    st.dataframe(results_df.style.highlight_max(
+        subset=['Accuracy', 'Precision', 'Recall', 'F1', 'AUC-ROC'], color='#90EE90'
+    ).format({c: '{:.4f}' for c in ['Accuracy', 'Precision', 'Recall', 'F1', 'AUC-ROC']}),
+        use_container_width=True)
 
     st.divider()
 
@@ -334,7 +336,7 @@ with tab3:
     # MLP Training History
     st.markdown("### MLP Training History")
     try:
-        st.image('mlp_training_history.png')
+        st.image('mlp_training_history.png', use_container_width=True)
         st.caption("Left: Binary cross-entropy loss. Right: Accuracy. Early stopping prevents overfitting.")
     except:
         st.info("Training history image not available.")
@@ -342,7 +344,7 @@ with tab3:
     # MLP Tuning Results (Bonus)
     st.markdown("### Bonus: MLP Hyperparameter Tuning")
     try:
-        st.image('mlp_tuning_results.png')
+        st.image('mlp_tuning_results.png', use_container_width=True)
         st.caption("Grid search over hidden layer sizes, dropout rates, and learning rates. Best config in red.")
     except:
         st.info("Tuning results image not available.")
@@ -369,14 +371,14 @@ with tab4:
     st.markdown("### SHAP Analysis (Best Tree Model)")
 
     st.markdown("#### SHAP Summary Plot (Beeswarm)")
-    st.image('fig_3_1_shap_summary.png')
+    st.image('fig_3_1_shap_summary.png', use_container_width=True)
     st.caption("Red = high feature value, Blue = low. Points right of center → increase heart disease probability.")
 
     st.markdown("#### SHAP Feature Importance")
-    st.image('fig_3_2_shap_bar.png')
+    st.image('fig_3_2_shap_bar.png', use_container_width=True)
 
     st.markdown("#### SHAP Waterfall — High Risk Patient Example")
-    st.image('fig_3_3_shap_waterfall.png')
+    st.image('fig_3_3_shap_waterfall.png', use_container_width=True)
     st.caption("Shows how each feature pushed the prediction from the base rate to a 99.5% risk for one patient.")
 
     st.divider()

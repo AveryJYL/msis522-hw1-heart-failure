@@ -14,11 +14,11 @@ This project implements the complete data science pipeline on the [Heart Disease
 
 | Model | F1 Score | AUC-ROC | Tuning |
 |-------|----------|---------|--------|
-| Logistic Regression (Baseline) | — | — | No CV (baseline) |
-| Decision Tree (CART) | — | — | GridSearchCV 5-fold |
-| **Random Forest** | **—** | **—** | GridSearchCV 5-fold |
-| XGBoost | — | — | GridSearchCV 5-fold |
-| Neural Network (Keras MLP) | — | — | 3-fold CV grid search (Bonus) |
+| Logistic Regression (Baseline) | 0.9007 | 0.9344 | No CV (baseline) |
+| Decision Tree (CART) | 0.8701 | 0.8819 | GridSearchCV 5-fold |
+| **Random Forest** | **0.9055** | **0.9448** | GridSearchCV 5-fold |
+| XGBoost | 0.8874 | 0.9388 | GridSearchCV 5-fold |
+| Neural Network (Keras MLP) | 0.8616 | 0.9214 | 3-fold CV grid search (Bonus) |
 
 > *Exact metrics are in `model_comparison.csv` and displayed in Tab 3 of the app.*
 
