@@ -261,7 +261,7 @@ with tab3:
     st.dataframe(results_df.style.highlight_max(
         subset=['Accuracy', 'Precision', 'Recall', 'F1', 'AUC-ROC'], color='#90EE90'
     ).format({c: '{:.4f}' for c in ['Accuracy', 'Precision', 'Recall', 'F1', 'AUC-ROC']}),
-        use_container_width=True)
+        use_column_width=True)
 
     st.divider()
 
@@ -336,7 +336,7 @@ with tab3:
     # MLP Training History
     st.markdown("### MLP Training History")
     try:
-        st.image('mlp_training_history.png', use_container_width=True)
+        st.image('mlp_training_history.png', use_column_width=True)
         st.caption("Left: Binary cross-entropy loss. Right: Accuracy. Early stopping prevents overfitting.")
     except:
         st.info("Training history image not available.")
@@ -344,7 +344,7 @@ with tab3:
     # MLP Tuning Results (Bonus)
     st.markdown("### Bonus: MLP Hyperparameter Tuning")
     try:
-        st.image('mlp_tuning_results.png', use_container_width=True)
+        st.image('mlp_tuning_results.png', use_column_width=True)
         st.caption("Grid search over hidden layer sizes, dropout rates, and learning rates. Best config in red.")
     except:
         st.info("Tuning results image not available.")
@@ -371,14 +371,14 @@ with tab4:
     st.markdown("### SHAP Analysis (Best Tree Model)")
 
     st.markdown("#### SHAP Summary Plot (Beeswarm)")
-    st.image('fig_3_1_shap_summary.png', use_container_width=True)
+    st.image('fig_3_1_shap_summary.png', use_column_width=True)
     st.caption("Red = high feature value, Blue = low. Points right of center → increase heart disease probability.")
 
     st.markdown("#### SHAP Feature Importance")
-    st.image('fig_3_2_shap_bar.png', use_container_width=True)
+    st.image('fig_3_2_shap_bar.png', use_column_width=True)
 
     st.markdown("#### SHAP Waterfall — High Risk Patient Example")
-    st.image('fig_3_3_shap_waterfall.png', use_container_width=True)
+    st.image('fig_3_3_shap_waterfall.png', use_column_width=True)
     st.caption("Shows how each feature pushed the prediction from the base rate to a 99.5% risk for one patient.")
 
     st.divider()
